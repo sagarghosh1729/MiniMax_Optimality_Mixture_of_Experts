@@ -1,0 +1,345 @@
+"""
+===========================================================
+train_moe.py
+===========================================================
+
+Train a Feed-forward Mixture of Experts regression model.
+
+Input:
+
+        X
+
+        |
+
+        MoE
+
+        |
+
+        Y_hat
+
+
+Evaluate:
+
+        Test RMSE vs number of training samples
+
+
+Supports:
+
+- Apple Silicon MPS
+- CUDA
+- CPU
+
+===========================================================
+"""
+
+import os
+import math
+import random
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt 
+
+from tqdm import tqdm 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+
+###########################################################################
+# Device
+###########################################################################
+
+def get_device():
+    if torch.backends.mps.is_available():
+        print("\nUsing Apple Metal (MPS)")
+        return torch.device("mps")
+    elif torch.cuda.is_available():
+        print("\nUsing CUDA")
+        return torch.device("cuda")
+    else:
+        print("\nUsing CPU")
+        return torch.device("cpu")
+
+def seed_everything(seed = 7649297):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+
+
+###########################################################################
+# Load Dataset
+############################################################################
+
+def load_dataset(dataset_path):
+    data = torch.load(dataset_path)
+    X = data["X"].float()
+    Y = data["Y"].float()
+    print(f"--------------------------------------------------------")
+    print(f"Loaded dataset from {dataset_path} with {X.shape[0]} samples and {X.shape[1]} features.")
+    print(f"Target shape: {Y.shape}")
+    print(f"--------------------------------------------------------")
+    return X, Y
+
+
+###########################################################################
+#Standardize 
+###########################################################################
+
+class StandardScaler:
+    def __init__(self):
+        self.mean = None
+        self.std = None
+
+    def fit(self, X):
+        self.mean = X.mean(0, keepdim = True)
+        self.std = X.std(0, keepdim = True)+1e-8
+    def transform(self, X):
+        return (X - self.mean)/self.std
+    def inverse(self, X):
+        return X*self.std + self.mean        
+
+
+############################################################################
+# Expert Network
+############################################################################
+
+
+class Expert(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim=1024):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            # nn.Linear(hidden_dim, hidden_dim),
+            # nn.GELU(),
+            nn.Linear(hidden_dim, output_dim)
+        )
+    def forward(self, x):
+        return self.net(x)
+
+############################################################################
+# Mixture of Experts Network
+############################################################################
+
+#Fix Topk=r
+r=3
+class MixtureOfExperts(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim=1024, num_experts=4, top_k=r):
+        super().__init__()
+        self.num_experts = num_experts
+        self.top_k = top_k
+        if top_k < 1 or top_k > num_experts:
+            raise ValueError(
+                f"top_k must satisfy 1 <= top_k <= num_experts. "
+                f"Got top_k={top_k}, num_experts={num_experts}."
+            )
+        self.experts = nn.ModuleList([Expert(input_dim, output_dim, hidden_dim) for _ in range(num_experts)])
+        self.gate = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, num_experts)
+        )
+
+    def forward(self, x, return_components=False):
+        expert_outputs = []
+        for expert in self.experts:
+            expert_outputs.append(expert(x))
+        expert_outputs = torch.stack(expert_outputs, dim=1)
+        gate_logits = self.gate(x)
+        topk_logits, topk_indices = torch.topk(gate_logits, k=self.top_k, dim=1)
+        topk_weights = torch.softmax(topk_logits, dim=1)
+        output_dim = expert_outputs.shape[-1]
+        expand_indices = topk_indices.unsqueeze(-1).expand(-1, -1, output_dim)
+        selected_expert_outputs = torch.gather(expert_outputs, dim=1, index=expand_indices)
+        output = torch.sum(selected_expert_outputs * topk_weights.unsqueeze(-1), dim=1)
+        # gate_outputs = torch.softmax(self.gate(x), dim=1)
+        # gate_outputs = gate_outputs.unsqueeze(-1)
+        # output = torch.sum(expert_outputs * gate_outputs, dim=1)
+        if return_components:
+            gate_outputs = torch.zeros_like(gate_logits)
+            gate_outputs.scatter_(1,topk_indices,topk_weights)
+            gate_outputs = gate_outputs.unsqueeze(-1)
+            return (output,expert_outputs,gate_outputs,topk_indices)
+
+        return output
+
+############################################################################
+# Computing the Bounding Curve for the Mixture of Experts
+############################################################################   
+
+def compute_empirical_l2_measures(model, X_train, C=1.0, L=1.0):
+    device = next(model.parameters()).device
+    model.eval()
+
+    with torch.no_grad():
+        _, expert_outputs, gate_outputs, topk_indices = model(X_train.to(device), return_components=True)
+        expert_l2 = torch.sqrt(torch.mean(torch.sum(expert_outputs**2, dim=-1), dim=0))
+        max_expert_l2 = expert_l2.max().item()
+        gate_l2 = torch.sqrt(torch.mean(torch.sum(gate_outputs**2, dim=-1))).item()
+
+        # Complexity Bound
+        n=X_train.shape[0]
+        d_in = X_train.shape[1]
+        d_out = expert_outputs.shape[-1]
+        K = model.num_experts
+        r = model.top_k
+        denom = d_in * (d_out+r)
+        a = (L * K * gate_l2 * n) / (r * d_in *(K + d_out))
+        b = (L * (r + 1) * K* K * max_expert_l2 * n) / (d_in * r * (r-1) * (K+d_out))
+        bound = math.sqrt((denom/n)  
+                 + (r * math.log(math.exp(1)*K/r))/n
+                 + (d_in * d_out * math.log(a))/n
+                 + (d_in * r * math.log(b))/n)
+
+
+
+
+
+        return expert_l2.cpu(), max_expert_l2, gate_l2, bound
+    
+
+
+############################################################################
+# Training Loop
+############################################################################  
+
+def train_model(model, X_train, Y_train, X_test, Y_test, device, num_epochs = 50, lr = 1e-3, batch_size = 512):
+    device = get_device()
+    model = model.to(device)
+    optimizer = optim.AdamW(model.parameters(), lr = lr)
+    loss_fn = nn.MSELoss()
+    best_rmse = float("inf")
+    for epoch in range(num_epochs):
+        model.train()
+        permutation = torch.randperm(X_train.shape[0])
+        for i in range(0, len(permutation), batch_size):
+            indices = permutation[i:i+batch_size]
+            xb = X_train[indices].to(device)
+            yb = Y_train[indices].to(device)
+            pred = model(xb)
+            loss = loss_fn(pred, yb)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # Evaluation
+
+        model.eval()
+        with torch.no_grad():
+            pred_train = model(X_train.to(device))
+            rmse_train = torch.sqrt(torch.mean((pred_train-Y_train.to(device))**2))
+            pred_test = model(X_test.to(device))
+            test_rmse = torch.sqrt(torch.mean((pred_test-Y_test.to(device))**2))
+        if test_rmse.item()<best_rmse:
+            best_rmse = test_rmse.item()
+            best_train_rmse = rmse_train.item()
+    return best_rmse, best_train_rmse
+
+
+#############################################################################
+# The Main Funcition
+#############################################################################
+d_in = 4
+d_out = 8
+r = 4
+def main():
+    seed_everything()
+    device = get_device()
+    X,Y= load_dataset(f'/Users/sg63684/Desktop/PhD Stuffs/Mixture of Experts/Simulations/Generated_Datasets/General_Case/transformer_dataset_in{d_in}_out{d_out}.pt')
+
+    sx = StandardScaler()
+    sy = StandardScaler()
+
+    sx.fit(X)
+    sy.fit(Y)
+
+    X = sx.transform(X)
+    Y = sy.transform(Y)
+
+    n = X.shape[0]
+    perm = torch.randperm(n)
+    train_size = int(0.8*n)
+    test_size = n-train_size
+
+    test_idx = perm[:test_size]
+
+    X_test = X[test_idx]
+    Y_test = Y[test_idx]
+
+    train_idx = perm[test_size:]
+
+    train_sizes = [int(train_size*i/100) for i in range(1, 101)]  # 1% to 100% of training data in increments of 1%
+    #train_sizes = [int(train_size)]
+    #train_sizes = [int(train_size*0.1), int(train_size*0.2), int(train_size*0.3), int(train_size*0.4), int(train_size*0.5), int(train_size*0.6), int(train_size*0.7), int(train_size*0.8), int(train_size*0.9), train_size]
+
+    rmse_list = []
+    train_rmse_list = []
+    bound_list = []
+    results = []
+
+    best_model = None
+    best_rmse = float("inf")
+    for size in train_sizes:
+        print(f"\n-------------------------------------------------------------------------")
+        print(f"Training with {size} samples...")
+        idx = train_idx[:size]
+        X_train = X[idx]
+        Y_train = Y[idx]
+
+        model = MixtureOfExperts(input_dim=X.shape[1], output_dim=Y.shape[1], hidden_dim=256, num_experts=4, top_k=r)
+        test_rmse, train_rmse = train_model(model, X_train, Y_train, X_test, Y_test, device=device)
+        expert_l2_device, max_expert_l2, gate_l2, bound = compute_empirical_l2_measures(model, X_train)
+        expert_l2_device_np = expert_l2_device.numpy().tolist()
+        results.append({
+            "train_size": size,
+            "test_rmse": test_rmse,
+            "train_rmse": train_rmse,
+            "expert_l2_device": expert_l2_device_np,
+            "max_expert_l2": max_expert_l2,
+            "gate_l2": gate_l2,
+            "bound": bound
+        })
+        print(f"\nEmpirical L2 measures - Expert L2 Device: {expert_l2_device}, Max Expert L2: {max_expert_l2}, Gate L2: {gate_l2}")
+        print(f"\nRMSE for {size} samples: {test_rmse}")
+        print(f"Train RMSE for {size} samples: {train_rmse}")
+        print(f"Bound for {size} samples: {bound}")
+        rmse_list.append(test_rmse)
+        train_rmse_list.append(train_rmse)
+        bound_list.append(bound)
+        if test_rmse<best_rmse:
+            best_rmse = test_rmse
+            best_train_rmse = train_rmse
+            best_model = model
+    results_df = pd.DataFrame(results)
+    results_df.to_csv(f"/Users/sg63684/Desktop/PhD Stuffs/Mixture of Experts/Simulations/Results_CSV/Top_K_Case/Top-general/in{d_in}_out{d_out}_top{r}.csv", index=False)
+    print("\nSaved statistics to results/moe_training_statistics.csv")       
+
+    Path("models").mkdir(parents=True, exist_ok=True)  
+    torch.save(best_model.state_dict(), "models/best_moe_model.pt")
+
+    # Path("figures").mkdir(parents=True, exist_ok=True)
+    # plt.figure(figsize=(10,6))
+    # plt.plot(train_sizes, rmse_list, marker='o')
+    # plt.plot(train_sizes, bound_list, marker='x')
+    # plt.plot(train_sizes, train_rmse_list, marker='s')
+    # plt.legend(["Test RMSE", "Bound", "Train RMSE"])
+    # plt.xlabel("Number of Training Samples")
+    # plt.ylabel("RMSE")
+    # plt.title("RMSE vs Number of Training Samples")
+    # plt.grid()
+    # plt.savefig(f'/Users/sg63684/Desktop/PhD Stuffs/Mixture of Experts/Simulations/New_Figures/Top_K_case/in{d_in}_out{d_out}_top{r}.png', dpi=300, bbox_inches='tight')
+    # plt.show()
+
+if __name__=="__main__":    
+    main()
+
+         
+
+                
+
+
+        
