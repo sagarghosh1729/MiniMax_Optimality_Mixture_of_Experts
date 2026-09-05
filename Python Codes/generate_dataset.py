@@ -239,7 +239,7 @@ def generate_outputs(
 def save_dataset(
     X,
     Y,
-    output_dir='/Users/sg63684/Desktop/PhD Stuffs/Mixture of Experts/Simulations/Generated_Datasets',
+    output_dir='.../Mixture of Experts/Simulations/Generated_Datasets',
     dataset_name="transformer_dataset_in32_out32",
     save_csv=True,
     save_pt=True,
