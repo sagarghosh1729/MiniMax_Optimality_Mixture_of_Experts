@@ -73,7 +73,7 @@ Mixture-of-Experts Regression
        └── Top-p Routing
        │
        ▼
-RMSE + Empirical L² Measures + Theoretical Bound
+RMSE + Empirical L² Envelopes + Theoretical Bound
 ```
 
 The input is generated as
@@ -143,17 +143,11 @@ Each experiment uses a feed-forward MoE with:
 
 - `4` experts
 - Expert hidden dimension: `256`
+- One hidden layer
 - GELU nonlinearities
 - A neural gating network
 - Standardized input and output variables
 
-Each expert has the form
-
-\[
-f_j(x)
-=
-W_{j,2}\,\mathrm{GELU}(W_{j,1}x+b_{j,1})+b_{j,2}.
-\]
 
 The gate is a neural network that produces a score for each expert.
 
@@ -165,22 +159,7 @@ The final MoE prediction is a weighted combination of the selected expert output
 
 `Python Codes/train_general_moe.py`
 
-The general MoE uses a standard softmax gate:
-
-\[
-g_j(x)
-=
-\frac{\exp(z_j(x))}
-{\sum_{\ell=1}^{K}\exp(z_\ell(x))}.
-\]
-
-The prediction is
-
-\[
-\hat{Y}(x)
-=
-\sum_{j=1}^{K}g_j(x)f_j(x).
-\]
+The general MoE uses a standard softmax gate.
 
 All four experts can contribute to every prediction.
 
@@ -197,25 +176,17 @@ The Top-$k$ model first computes the gate logits and selects the $k$ experts wit
 The current implementation uses
 
 \[
-K=4,\qquad k=3.
+K=4,\qquad k=2.
 \]
 
-The selected logits are normalized with a softmax:
-
-\[
-g_j(x)
-=
-\frac{\exp(z_j(x))}
-{\sum_{\ell\in S_k(x)}\exp(z_\ell(x))},
-\qquad j\in S_k(x).
-\]
+The selected logits are normalized with a softmax. 
 
 All non-selected experts receive zero weight.
 
 The value of $k$ can be changed in:
 
 ```python
-r = 3
+r = 2
 ```
 
 inside `train_top-k_moe.py`.
@@ -269,7 +240,7 @@ For each routing mechanism:
 7. Save the resulting statistics as CSV files.
 8. Save the best-performing model checkpoint.
 
-The training uses the **Adam/AdamW-based PyTorch optimization pipeline** implemented in the corresponding training scripts.
+The training uses the **AdamW-based PyTorch optimization pipeline** implemented in the corresponding training scripts.
 
 ---
 
@@ -277,16 +248,7 @@ The training uses the **Adam/AdamW-based PyTorch optimization pipeline** impleme
 
 The training scripts compute empirical quantities associated with the expert and gating classes.
 
-For the experts, the implementation computes an empirical $L^2$ magnitude for each expert and records the maximum:
-
-\[
-B_* \approx \max_j
-\left(
-\frac{1}{n}
-\sum_{i=1}^{n}
-\|f_j(X_i)\|^2
-\right)^{1/2}.
-\]
+For the experts, the implementation computes an empirical $L^2$ magnitude for each expert and records the maximum.
 
 A corresponding empirical quantity is computed for the gate.
 
@@ -424,52 +386,26 @@ should be changed to paths appropriate for the local environment.
 
 Random seeds are explicitly set in the scripts.
 
-Dataset generation uses seed:
-
-```text
-1234
-```
-
-The MoE training scripts use seed:
-
-```text
-7649297
-```
-
 The experiments also use deterministic dataset splitting based on the generated random permutation.
 
 Exact reproducibility may nevertheless depend on the hardware backend (CPU, CUDA, or Apple MPS) and the corresponding PyTorch implementation.
 
 ---
 
-## 15. Large Files and Git
 
-Generated datasets such as:
 
-```text
-*.pt
-*.pth
-*.npy
-*.npz
-```
+## Operating System and Python Environment
+Hardware Overview:
 
-are excluded from Git because they can be hundreds of MBs or several GBs in size.
+      Model Name: MacBook Pro
+      Model Identifier: Mac16,6
+      Chip: Apple M4 Max
+      Total Number of Cores: 14 (10 Performance and 4 Efficiency)
+      Memory: 36 GB
+      System Firmware Version: 18000.101.7
+      OS Loader Version: 18000.101.7
 
-Similarly, generated virtual environments and Python cache files are ignored.
+## Python Version
 
-To reproduce the datasets, run `generate_dataset.py` with the appropriate parameters.
-
----
-
-## Citation
-
-If these simulations are used in a paper or other research work, please cite the corresponding research paper associated with this repository.
-
----
-
-## Author
-
-**Sagar Ghosh**
-
-Machine Learning PhD Student  
-The University of Texas at Austin
+      Python 3.13.7
+      
