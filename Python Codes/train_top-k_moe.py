@@ -249,7 +249,7 @@ r = 4
 def main():
     seed_everything()
     device = get_device()
-    X,Y= load_dataset(f'/Users/sg63684/Desktop/PhD Stuffs/Mixture of Experts/Simulations/Generated_Datasets/General_Case/transformer_dataset_in{d_in}_out{d_out}.pt')
+    X,Y= load_dataset(f'.../Mixture of Experts/Simulations/Generated_Datasets/General_Case/transformer_dataset_in{d_in}_out{d_out}.pt')
 
     sx = StandardScaler()
     sy = StandardScaler()
@@ -315,7 +315,7 @@ def main():
             best_train_rmse = train_rmse
             best_model = model
     results_df = pd.DataFrame(results)
-    results_df.to_csv(f"/Users/sg63684/Desktop/PhD Stuffs/Mixture of Experts/Simulations/Results_CSV/Top_K_Case/Top-general/in{d_in}_out{d_out}_top{r}.csv", index=False)
+    results_df.to_csv(f".../Mixture of Experts/Simulations/Results_CSV/Top_K_Case/Top-general/in{d_in}_out{d_out}_top{r}.csv", index=False)
     print("\nSaved statistics to results/moe_training_statistics.csv")       
 
     Path("models").mkdir(parents=True, exist_ok=True)  
@@ -331,7 +331,7 @@ def main():
     # plt.ylabel("RMSE")
     # plt.title("RMSE vs Number of Training Samples")
     # plt.grid()
-    # plt.savefig(f'/Users/sg63684/Desktop/PhD Stuffs/Mixture of Experts/Simulations/New_Figures/Top_K_case/in{d_in}_out{d_out}_top{r}.png', dpi=300, bbox_inches='tight')
+    # plt.savefig(f'.../Mixture of Experts/Simulations/New_Figures/Top_K_case/in{d_in}_out{d_out}_top{r}.png', dpi=300, bbox_inches='tight')
     # plt.show()
 
 if __name__=="__main__":    
