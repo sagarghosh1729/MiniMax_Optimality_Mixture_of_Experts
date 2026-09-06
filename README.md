@@ -5,8 +5,8 @@ This repository contains the simulation code, numerical results, and figures use
 The experiments compare three routing mechanisms:
 
 1. **General / dense MoE routing** — all experts contribute through a softmax gate.
-2. **Top-$$k$$ routing** — only the $k$ experts with the largest gate logits are selected.
-3. **Top-$p$ routing** — experts are selected according to cumulative softmax probability mass.
+2. **Top-k routing** — only the $k$ experts with the largest gate logits are selected.
+3. **Top-p routing** — experts are selected according to cumulative softmax probability mass.
 
 The simulations investigate how test RMSE, training RMSE, empirical $L^2$ quantities, and theoretical bounds vary with the number of training samples.
 
