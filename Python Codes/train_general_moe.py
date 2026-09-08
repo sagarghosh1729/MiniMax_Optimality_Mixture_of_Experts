@@ -168,9 +168,9 @@ def compute_empirical_l2_measures(model, X_train, C=1.0, L=1.0):
         d_in = X_train.shape[1]
         d_out = expert_outputs.shape[-1]
         K = model.num_experts
-        denom = d_in * (d_out+K)
+        denom = d_in * K* (d_out+1)
         bound = math.sqrt((denom/n 
-                 + (d_in*d_out*math.log(C*L*gate_l2*n/denom))/n
+                 + (d_in*d_out*K*math.log(C*L*gate_l2*n/denom))/n
                  + d_in*K*math.log(C*L*max_expert_l2*n/denom)/n))
 
 
