@@ -109,7 +109,7 @@ class StandardScaler:
 
 
 class Expert(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim=1024):
+    def __init__(self, input_dim, output_dim, hidden_dim=64):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -127,7 +127,7 @@ class Expert(nn.Module):
 
 
 class MixtureOfExperts(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim=1024, num_experts=4):
+    def __init__(self, input_dim, output_dim, hidden_dim=64, num_experts=4):
         super().__init__()
         self.num_experts = num_experts
         self.experts = nn.ModuleList([Expert(input_dim, output_dim, hidden_dim) for _ in range(num_experts)])
@@ -149,6 +149,7 @@ class MixtureOfExperts(nn.Module):
             return output, expert_outputs, gate_outputs
         return output
 
+d_param = 4*(d_in * d_h + d_h + d_h * d_out + d_out) + (d_in * d_h + d_h + d_h * K + K)
 ############################################################################
 # Computing the Bounding Curve for the Mixture of Experts
 ############################################################################   
@@ -168,10 +169,10 @@ def compute_empirical_l2_measures(model, X_train, C=1.0, L=1.0):
         d_in = X_train.shape[1]
         d_out = expert_outputs.shape[-1]
         K = model.num_experts
-        denom = d_in * K* (d_out+1)
+        denom = d_param * K* (d_out+1)
         bound = math.sqrt((denom/n 
-                 + (d_in*d_out*K*math.log(C*L*gate_l2*n/denom))/n
-                 + d_in*K*math.log(C*L*max_expert_l2*n/denom)/n))
+                 + (d_param*d_out*K*math.log(C*L*gate_l2*d_out*n/denom))/n
+                 + d_param*K*math.log(C*L*max_expert_l2*n/denom)/n))
 
 
 
