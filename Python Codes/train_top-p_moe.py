@@ -174,6 +174,7 @@ class MixtureOfExperts(nn.Module):
 
         return output
 
+d_param = 4*(d_in * d_h + d_h + d_h * d_out + d_out) + (d_in * d_h + d_h + d_h * K + K)
 ############################################################################
 # Computing the Bounding Curve for the Mixture of Experts
 ############################################################################   
@@ -197,12 +198,12 @@ def compute_empirical_l2_measures(model, X_train, C=1.0, L=1.0):
         K = model.num_experts
         r = r_eff
         p = model.top_p
-        denom = d_in * (int(K*p)+1) * (d_out+1)
-        a = (L * gate_l2 * n) / (p * d_in *(K + d_out))
-        b = (K * (K + 1) * max_expert_l2 * n) / (p * p * d_in * (K-1) * (K+d_out))
+        denom = d_param * (int(K*p)+1) * (d_out+1)
+        a = (L * gate_l2 * d_out * n) / (p * d_param *(K + d_out))
+        b = (K * (K + 1) * max_expert_l2 * n) / (p * p * d_param * (K-1) * (K+d_out))
         bound = math.sqrt((denom/n)  
-                 + (d_in * d_out * (int(K*p)+1) * math.log(a))/n
-                 + (d_in * (int(K*p)+1) * math.log(b))/n)
+                 + (d_param * d_out * (int(K*p)+1) * math.log(a))/n
+                 + (d_param * (int(K*p)+1) * math.log(b))/n)
 
 
 
