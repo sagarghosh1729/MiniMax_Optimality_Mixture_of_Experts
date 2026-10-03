@@ -30,14 +30,16 @@ Main-Simulations/
 │
 ├── Figures/
 │   ├── General Case/
-│   │   ├── First Order Difference Bounds/
+│   │   ├── Log-log Bounds/
 │   │   └── RMSE vs Theoretical Bounds/
 │   ├── Top K Case/
-│   │   ├── First Order Difference Bounds/
+│   │   ├── Log-log Bounds/
 │   │   └── RMSE vs Theoretical Bounds/
 │   └── Top P Case/
-│       ├── First Order Difference Bounds/
+│       ├── Log-log Bounds/
 │       └── RMSE vs Theoretical Bounds/
+│       └── Average Number of Active Experts/
+│
 │
 └── README.md
 ```
@@ -134,12 +136,11 @@ The generated datasets are saved in PyTorch `.pt` format. These files can become
 Each experiment uses a feed-forward MoE with:
 
 - `4` experts
-- Expert hidden dimension: `256`
+- Expert hidden dimension: `32`
 - One hidden layer
 - GELU nonlinearities
-- A neural gating network
+- A neural gating network with one hidden layer of dimension: `32`
 - Standardized input and output variables
-
 
 The gate is a neural network that produces a score for each expert.
 
@@ -301,7 +302,7 @@ as a function of the number of training samples.
 
 ### First-order difference bounds
 
-These figures are used to examine the behavior of the empirical quantities and the corresponding theoretical bounds through first-order differences.
+These figures are used to examine whether the Theoretical Bound slope stays flat relative to the empirical slope on a log-log scale. A reference curve with slope `-1` has been placed to determine how far the Theoretical Bound curve lies from the usual parametric rate curve.  
 
 ---
 
